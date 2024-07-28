@@ -71,12 +71,12 @@ server.post("/register", async (req, res) => {
     // send verification email
     await sendEmailVerification(user);
 
-    if (user.emailVerified) {
+
       const idToken = user.getIdToken();
       res
         .status(200)
         .json({ message: "User registered successfully", user, idToken });
-    }
+    
   } catch (error) {
     if (error.code === "auth/email-already-in-use") {
       res.status(400).json({ message: "Email is already in use" });
