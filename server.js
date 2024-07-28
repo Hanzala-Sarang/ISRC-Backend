@@ -46,7 +46,6 @@ server.get("/", (req, res) => {
 });
 
 // Register the User
-
 server.post("/register", async (req, res) => {
   const { email, password } = req.body;
 
@@ -72,10 +71,50 @@ server.post("/register", async (req, res) => {
     // send verification email
     await sendEmailVerification(user);
 
-    res.status(200).json({ message: "User registered successfully", user });
+    if (user.emailVerified) {
+      const idToken = user.getIdToken();
+      res
+        .status(200)
+        .json({ message: "User registered successfully", user, idToken });
+    }
   } catch (error) {
-    console.error("Error registering user:", error);
-    res.status(500).json({ message: "Error registering user", error });
+    if (error.code === "auth/email-already-in-use") {
+      res.status(400).json({ message: "Email is already in use" });
+    } else {
+      console.error("Error registering user:", error);
+      res.status(500).json({ message: "Error registering user", error });
+    }
+  }
+});
+
+// Login the User
+
+server.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and Password are required" });
+  }
+
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+    const user = userCredential.user;
+
+    if (user.emailVerified) {
+      const idToken = await user.getIdToken();
+      res.status(200).json({ message: "Login successful", user, idToken });
+    } else {
+      res
+        .status(400)
+        .json({ message: "Please verify your email before logging in." });
+    }
+  } catch (error) {
+    console.error("Error logging in:", error);
+    res.status(500).json({ message: "Error logging in", error });
   }
 });
 
@@ -148,6 +187,54 @@ server.post("/verify", async (req, res) => {
   }
 });
 
+// Register the Campus Ambassador
+
+server.post("/campus-ambassador", async (req, res) => {
+  const {
+    name,
+    email,
+    phone,
+    state,
+    city,
+    college,
+    yearOfStudy,
+    degreeProgram,
+  } = req.body;
+
+  if (
+    !name ||
+    !email ||
+    !phone ||
+    !state ||
+    !city ||
+    !college ||
+    !yearOfStudy ||
+    !degreeProgram
+  ) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  try {
+    // Save the Campus Ambassador details to Firebase Realtime Database
+    const newCampusAmbassadorRef = push(dbRef(database, "campus-ambassadors"));
+    await set(newCampusAmbassadorRef, {
+      name,
+      email,
+      phone,
+      state,
+      city,
+      college,
+      yearOfStudy,
+      degreeProgram,
+      createdAt: new Date().toISOString(),
+    });
+    res
+      .status(200)
+      .json({ message: "Campus Ambassador registered successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
