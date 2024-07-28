@@ -71,12 +71,10 @@ server.post("/register", async (req, res) => {
     // send verification email
     await sendEmailVerification(user);
 
-    if (user.emailVerified) {
-      const idToken = user.getIdToken();
-      res
-        .status(200)
-        .json({ message: "User registered successfully", user, idToken });
-    }
+    const idToken = await user.getIdToken();
+    res
+      .status(200)
+      .json({ message: "User registered successfully", user, idToken });
   } catch (error) {
     if (error.code === "auth/email-already-in-use") {
       res.status(400).json({ message: "Email is already in use" });
@@ -115,6 +113,36 @@ server.post("/login", async (req, res) => {
   } catch (error) {
     console.error("Error logging in:", error);
     res.status(500).json({ message: "Error logging in", error });
+  }
+});
+
+// Check the verification Email
+
+server.post("/check-verification", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and Password are required" });
+  }
+
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+    const user = userCredential.user;
+
+    if (user.emailVerified) {
+      res.status(200).json({ message: "Email is verified" });
+    } else {
+      res.status(200).json({ message: "Email is not verified" });
+    }
+  } catch (error) {
+    console.error("Error checking email verification:", error);
+    res
+      .status(500)
+      .json({ message: "Error checking email verification", error });
   }
 });
 
