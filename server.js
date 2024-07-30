@@ -1,11 +1,13 @@
 import express from "express";
 import multer from "multer";
 import cors from "cors";
+import bodyParser from "body-parser";
 import { initializeApp } from "firebase/app";
 import {
   createUserWithEmailAndPassword,
   getAuth,
   sendEmailVerification,
+  signInWithEmailAndPassword,
 } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
@@ -38,9 +40,10 @@ const auth = getAuth();
 const server = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-server.use(express.json());
 server.use(cors());
-
+server.use(express.json()); // Built-in body-parser for JSON
+server.use(express.urlencoded({ extended: true })); // Built-in body-parser for URL-encoded data
+server.use(bodyParser.json());
 server.get("/", (req, res) => {
   res.send("App is working");
 });
@@ -65,7 +68,6 @@ server.post("/register", async (req, res) => {
     await set(dbRef(database, `users/${user.uid}`), {
       uid: user.uid,
       email: user.email,
-      createdAt: new Date().toISOString(),
     });
 
     // send verification email
@@ -102,19 +104,16 @@ server.post("/login", async (req, res) => {
     );
     const user = userCredential.user;
 
-    if (user.emailVerified) {
-      const idToken = await user.getIdToken();
-      res.status(200).json({ message: "Login successful", user, idToken });
-    } else {
-      res
-        .status(400)
-        .json({ message: "Please verify your email before logging in." });
-    }
+    const idToken = await user.getIdToken();
+    res.status(200).json({ message: "Login successful", user, idToken });
   } catch (error) {
     console.error("Error logging in:", error);
     res.status(500).json({ message: "Error logging in", error });
   }
 });
+
+// token verification
+// Team registration form
 
 // Check the verification Email
 
