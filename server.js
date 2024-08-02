@@ -162,7 +162,7 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// testing route for working middleware of verify token
+// Get the user Data
 server.get("/user-profile", verifyToken, async (req, res) => {
   const uid = req.user.uid;
 
