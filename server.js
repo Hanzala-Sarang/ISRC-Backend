@@ -59,7 +59,7 @@ server.use(bodyParser.json());
 
 // API Security
 const limiter = rateLimit({
-  max: 100,
+  max: 1000,
   windowMs: 60 * 60 * 1000,
   message: "Too many requests from this IP, please try again in an hour",
 });
@@ -96,9 +96,7 @@ server.post("/register", async (req, res) => {
     // send verification email
     await sendEmailVerification(user);
 
-    const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET);
     res.status(200).json({ message: "User registered successfully", token });
   } catch (error) {
     if (error.code === "auth/email-already-in-use") {
@@ -126,9 +124,7 @@ server.post("/login", async (req, res) => {
     );
     const user = userCredential.user;
 
-    const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET, {
-      expiresIn: "2h",
-    });
+    const token = jwt.sign({ uid: user.uid }, process.env.JWT_SECRET);
 
     res.status(200).json({ message: "Login successful", token });
   } catch (error) {
