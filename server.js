@@ -213,11 +213,10 @@ server.post("/register-team", verifyToken, async (req, res) => {
         },
         members: teamMembers,
       },
+      teamRegistered: true,
     });
 
-    res
-      .status(200)
-      .json({ message: "Team registered successfully", registered: true });
+    res.status(200).json({ message: "Team registered successfully" });
   } catch (error) {
     console.error("Error registering team:", error);
     res.status(500).json({ error: "Error registering team" });
