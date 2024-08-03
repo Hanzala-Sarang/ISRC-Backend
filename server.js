@@ -3,6 +3,7 @@ import multer from "multer";
 import cors from "cors";
 import bodyParser from "body-parser";
 import Razorpay from "razorpay";
+import crypto from "crypto";
 import { initializeApp } from "firebase/app";
 import {
   createUserWithEmailAndPassword,
@@ -256,31 +257,42 @@ server.post("/api/verify", verifyToken, async (req, res) => {
 
   try {
     // Create sign string by concatenating order_id and payment_id
-    const sign = razorpay_order_id + "|" + razorpay_payment_id;
+    const sign = `${razorpay_order_id}|${razorpay_payment_id}`;
 
     // Create ExpectedSign by hashing the sign string with the Razorpay secret key
     const expectedSign = crypto
       .createHmac("sha256", process.env.RZP_SECRET_KEY)
-      .update(sign.toString())
+      .update(sign)
       .digest("hex");
 
     // Compare the expectedSign with the received signature
-    const isAuthentic = expectedSign === razorpay_signature;
-
-    // Determine payment verification status
-    const paymentVerified = isAuthentic; // true if signature matches, otherwise false
+    const paymentVerified = expectedSign === razorpay_signature;
 
     // Save payment data to Firebase Realtime Database
-    const userRef = dbRef(
-      database,
-      `users/${uid}/payments/${razorpay_payment_id}`
-    );
-    await set(userRef, {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      paymentVerified,
-    });
+    const userRef = ref(db, `users/${uid}`);
+
+    // Fetch existing user data
+    const userSnapshot = await get(userRef);
+    const userData = userSnapshot.val();
+
+    if (userData) {
+      // Add payment details to existing user data
+      const updatedUserData = {
+        ...userData,
+        payments: {
+          ...(userData.payments || {}),
+          [razorpay_payment_id]: {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+            paymentVerified,
+          },
+        },
+      };
+
+      // Update user data with payment details
+      await set(userRef, updatedUserData);
+    }
 
     // Send response based on payment verification status
     if (paymentVerified) {
@@ -289,8 +301,8 @@ server.post("/api/verify", verifyToken, async (req, res) => {
       res.status(400).json({ message: "Payment verification failed" });
     }
   } catch (error) {
-    res.status(500).json({ message: "Internal Server Error" });
     console.error("Payment verification error:", error); // Log error details for troubleshooting
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
