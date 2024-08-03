@@ -207,94 +207,26 @@ server.post("/register-team", verifyToken, async (req, res) => {
       team: {
         teamName: formDetails.teamName,
         country: formDetails.country,
-        institutionName: formDetails.institutionName,
-        teamLeader: {
-          fullName: formDetails.teamLeader.fullName,
-          email: formDetails.teamLeader.email,
-          phoneNumber: formDetails.teamLeader.phoneNumber,
-          dateOfBirth: formDetails.teamLeader.dateOfBirth,
+        competitionTopic: formDetails.competitionTopic,
+        mentor: {
+          name: formDetails.mentorName,
+          age: formDetails.mentorAge,
+          email: formDetails.mentorEmail,
+          phone: formDetails.mentorPhone,
         },
-        teamMembers: teamMembers.map((member, index) => ({
-          fullName: member.fullName,
-          email: member.email,
-          phoneNumber: member.phoneNumber,
-          dateOfBirth: member.dateOfBirth,
-          emergencyContact: member.emergencyContact,
-        })),
+        members: teamMembers,
       },
-      // Adding registration status
-      registrationStatus: "registered",
+      teamRegistered: true,
     });
 
     res.status(200).json({ message: "Team registered successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error registering team", error });
+    console.error("Error registering team:", error);
+    res.status(500).json({ error: "Error registering team" });
   }
 });
 
-// Set Team Image Upload
-server.post(
-  "/upload-team-image",
-  verifyToken,
-  upload.single("teamImage"),
-  async (req, res) => {
-    const uid = req.user.uid;
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({ error: "No image file uploaded" });
-    }
-
-    try {
-      const imageRef = ref(storage, `teamImages/${uid}/${file.originalname}`);
-      await uploadBytes(imageRef, file.buffer);
-
-      const imageUrl = await getDownloadURL(imageRef);
-
-      await set(dbRef(database, `users/${uid}/teamImageUrl`), imageUrl);
-
-      res
-        .status(200)
-        .json({ message: "Image uploaded successfully", imageUrl });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to upload image", details: error });
-    }
-  }
-);
-
-// Set Resume Upload
-server.post(
-  "/upload-resume",
-  verifyToken,
-  upload.single("resume"),
-  async (req, res) => {
-    const uid = req.user.uid;
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({ error: "No resume file uploaded" });
-    }
-
-    try {
-      const resumeRef = ref(storage, `resumes/${uid}/${file.originalname}`);
-      await uploadBytes(resumeRef, file.buffer);
-
-      const resumeUrl = await getDownloadURL(resumeRef);
-
-      await set(dbRef(database, `users/${uid}/resumeUrl`), resumeUrl);
-
-      res
-        .status(200)
-        .json({ message: "Resume uploaded successfully", resumeUrl });
-    } catch (error) {
-      res
-        .status(500)
-        .json({ error: "Failed to upload resume", details: error });
-    }
-  }
-);
-
-// Payment Integration
+// Payment Gateway
 server.post("/api/payment", (req, res) => {
   const { teamTotalPrice } = req.body;
 
@@ -333,6 +265,248 @@ server.post("/api/payment", (req, res) => {
   }
 });
 
-server.listen(4242, () => {
-  console.log("Server is running on port 4242");
+// Payment Verification
+server.post("/api/verify", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+    req.body;
+
+  console.log("rzpordid", razorpay_order_id);
+  console.log("rzppaymentid", razorpay_payment_id);
+  console.log("rzpsignature", razorpay_signature);
+  try {
+    if (
+      !uid ||
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
+    ) {
+      return res.status(400).json({ message: "Missing required parameters" });
+    }
+    // Create sign string by concatenating order_id and payment_id
+    const sign = razorpay_order_id + "|" + razorpay_payment_id;
+
+    // Create ExpectedSign by hashing the sign string with the Razorpay secret key
+    const expectedSign = crypto
+      .createHmac("sha256", process.env.RZP_SECRET_KEY)
+      .update(sign)
+      .digest("hex");
+
+    // Compare the expectedSign with the received signature
+    const paymentVerified = expectedSign === razorpay_signature;
+
+    // Save payment data to Firebase Realtime Database
+    const userRef = dbRef(database, `users/${uid}`);
+
+    // Fetch existing user data
+    const userSnapshot = await get(userRef);
+    const userData = userSnapshot.val();
+
+    if (userData) {
+      // Add payment details to existing user data
+      const updatedUserData = {
+        ...userData,
+        payments: {
+          ...(userData.payments || {}),
+          [razorpay_payment_id]: {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+            paymentVerified,
+          },
+        },
+      };
+
+      // Update user data with payment details
+      await set(userRef, updatedUserData);
+    }
+
+    // Send response based on payment verification status
+    if (paymentVerified) {
+      res.status(200).json({ message: "Payment verified successfully" });
+    } else {
+      res.status(400).json({ message: "Payment verification failed" });
+    }
+  } catch (error) {
+    console.error("Payment verification error:", error); // Log error details for troubleshooting
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+// Get the User Details
+
+// Check the verification Email
+server.post("/check-verification", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and Password are required" });
+  }
+
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+    const user = userCredential.user;
+
+    if (user.emailVerified) {
+      res.status(200).json({ message: "Email is verified" });
+    } else {
+      res.status(200).json({ message: "Email is not verified" });
+    }
+  } catch (error) {
+    console.error("Error checking email verification:", error);
+    res
+      .status(500)
+      .json({ message: "Error checking email verification", error });
+  }
+});
+
+// Admin panel route - upload Auth code and certificate (At the Moment Not in Use)
+server.post("/upload", upload.single("certificate"), async (req, res) => {
+  const { authCode } = req.body;
+  const file = req.file;
+
+  if (!authCode || !file) {
+    return res
+      .status(400)
+      .json({ message: "Auth Code and Certificate are required" });
+  }
+
+  try {
+    // Upload file to Firebase Storage
+    const storageRef = ref(
+      storage,
+      `certificates/${Date.now()}-${file.originalname}`
+    );
+    const snapshot = await uploadBytes(storageRef, file.buffer);
+    const downloadURL = await getDownloadURL(snapshot.ref);
+
+    // Save Auth Code and file URL to Firebase Realtime Database
+    const newUploadRef = push(dbRef(database, "certificates"));
+
+    await set(newUploadRef, {
+      id: newUploadRef.key,
+      authCode,
+      certificateUrl: downloadURL,
+      uploadedAt: serverTimestamp(),
+    });
+
+    res.status(200).json({ message: "Upload successful", downloadURL });
+  } catch (error) {
+    console.error("Error uploading file:", error);
+    res.status(500).json({ message: "Error uploading file", error });
+  }
+});
+// Admin panel route - upload AuthCode, Name, and academic in database
+server.post("/save-details", async (req, res) => {
+  const { authCode, name, academicYear } = req.body;
+
+  if (!authCode || !name || !academicYear) {
+    return res
+      .status(400)
+      .json({ message: "Auth Code, Name, and Academic Year are required" });
+  }
+
+  try {
+    const newDetailsRef = push(dbRef(database, "certificate-details"));
+    await set(newDetailsRef, {
+      authCode,
+      name,
+      academicYear,
+    });
+
+    res.status(200).json({ message: "Details saved successfully" });
+  } catch (error) {
+    console.error("Error saving details:", error);
+    res.status(500).json({ message: "Error saving details", error });
+  }
+});
+
+server.post("/verify", async (req, res) => {
+  const { authCode } = req.body;
+
+  if (!authCode) {
+    return res.status(400).json({ message: "Auth Code is required" });
+  }
+
+  try {
+    // Query Firebase Realtime Database for the given Auth Code
+    const uploadsRef = dbRef(database, "certificates");
+
+    // Fetch all child nodes under 'uploads'
+    const snapshot = await get(uploadsRef);
+
+    if (snapshot.exists()) {
+      // Iterate through the children to find a matching authCode
+      const data = snapshot.val();
+      for (const key in data) {
+        if (data[key].authCode === authCode) {
+          return res
+            .status(200)
+            .json({ certificateUrl: data[key].certificateUrl });
+        }
+      }
+    } else {
+      res.status(404).json({ message: "No record found for this Auth Code" });
+    }
+  } catch (error) {
+    console.error("Error fetching data:", error);
+    res.status(500).json({ message: "Error fetching data", error });
+  }
+});
+
+// Register the Campus Ambassador
+server.post("/campus-ambassador", async (req, res) => {
+  const {
+    name,
+    email,
+    phone,
+    state,
+    city,
+    college,
+    yearOfStudy,
+    degreeProgram,
+  } = req.body;
+
+  if (
+    !name ||
+    !email ||
+    !phone ||
+    !state ||
+    !city ||
+    !college ||
+    !yearOfStudy ||
+    !degreeProgram
+  ) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  try {
+    // Save the Campus Ambassador details to Firebase Realtime Database
+    const newCampusAmbassadorRef = push(dbRef(database, "campus-ambassadors"));
+    await set(newCampusAmbassadorRef, {
+      name,
+      email,
+      phone,
+      state,
+      city,
+      college,
+      yearOfStudy,
+      degreeProgram,
+      createdAt: new Date().toISOString(),
+    });
+    res
+      .status(200)
+      .json({ message: "Campus Ambassador registered successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
