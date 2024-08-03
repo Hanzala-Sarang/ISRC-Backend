@@ -60,7 +60,7 @@ server.use(bodyParser.json());
 
 // API Security
 const limiter = rateLimit({
-  max: 1000,
+  max: 100000,
   windowMs: 60 * 60 * 1000,
   message: "Too many requests from this IP, please try again in an hour",
 });
@@ -241,7 +241,7 @@ server.post("/api/payment", (req, res) => {
         res.status(500).json({ error: "Failed to create order" });
       }
       res.status(200).json({ data: order });
-      console.log("Order created", order);
+      console.log("Order created now", order);
     });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error" });
@@ -255,9 +255,20 @@ server.post("/api/verify", verifyToken, async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
     req.body;
 
+  console.log("rzpordid", razorpay_order_id);
+  console.log("rzppaymentid", razorpay_payment_id);
+  console.log("rzpsignature", razorpay_signature);
   try {
+    if (
+      !uid ||
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
+    ) {
+      return res.status(400).json({ message: "Missing required parameters" });
+    }
     // Create sign string by concatenating order_id and payment_id
-    const sign = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const sign = razorpay_order_id + "|" + razorpay_payment_id;
 
     // Create ExpectedSign by hashing the sign string with the Razorpay secret key
     const expectedSign = crypto
@@ -269,7 +280,7 @@ server.post("/api/verify", verifyToken, async (req, res) => {
     const paymentVerified = expectedSign === razorpay_signature;
 
     // Save payment data to Firebase Realtime Database
-    const userRef = ref(db, `users/${uid}`);
+    const userRef = dbRef(database, `users/${uid}`);
 
     // Fetch existing user data
     const userSnapshot = await get(userRef);
