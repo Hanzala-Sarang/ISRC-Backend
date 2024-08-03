@@ -51,6 +51,8 @@ const database = getDatabase(app);
 const auth = getAuth();
 
 const server = express();
+// Trust the first proxy
+server.set("trust proxy", 1);
 const upload = multer({ storage: multer.memoryStorage() });
 
 server.use(cors());
@@ -226,11 +228,11 @@ server.post("/register-team", verifyToken, async (req, res) => {
 
 // Payment Gateway
 server.post("/api/payment", (req, res) => {
-  const { amount } = req.body;
+  const { teamTotalPrice } = req.body;
 
   try {
     const options = {
-      amount: Number(amount) * 100,
+      amount: Number(teamTotalPrice) * 100,
       currency: "INR",
       receipt: crypto.randomBytes(10).toString("hex"),
     };
