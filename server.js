@@ -241,7 +241,11 @@ server.post("/api/register-team", verifyToken, async (req, res) => {
       team: {
         teamName: formDetails.teamName,
         country: formDetails.country,
-        competitionTopic: formDetails.competitionTopic,
+        competitionTopic: {
+          ageGroup: formDetails.ageGroup,
+          topic: formDetails.topic,
+          category: formDetails.category,
+        },
         mentor: {
           name: formDetails.mentorName,
           age: formDetails.mentorAge,
