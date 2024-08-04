@@ -66,7 +66,7 @@ server.use(helmet());
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Limit each IP to 100 requests per windowMs
+  max: 500, // Limit each IP to 100 requests per windowMs
   message: "Too many requests, please try again later.",
 });
 
@@ -363,6 +363,36 @@ server.post("/api/verify", verifyToken, paymentLimiter, async (req, res) => {
 });
 
 // Get the User Details
+
+// Check the Team Name Uniqueness
+server.get("/api/check-team-name", verifyToken, async (req, res) => {
+  const { teamName } = req.query;
+
+  if (!teamName) {
+    return res.status(400).json({ message: "Team name is required" });
+  }
+
+  try {
+    const usersRef = dbRef(database, "users");
+    const snapshot = await get(usersRef);
+
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const teamNames = Object.values(data)
+        .map((user) => user.team?.teamName?.toLowerCase())
+        .filter(Boolean);
+
+      if (teamNames.includes(teamName.toLowerCase())) {
+        return res.status(200).json({ exists: true });
+      }
+    }
+
+    res.status(200).json({ exists: false });
+  } catch (error) {
+    console.error("Error checking team name:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
 
 // Check the verification Email
 server.post("/api/check-verification", async (req, res) => {
