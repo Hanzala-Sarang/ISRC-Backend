@@ -249,6 +249,7 @@ server.post("/api/register-team", verifyToken, async (req, res) => {
         mentor: {
           name: formDetails.mentorName,
           age: formDetails.mentorAge,
+          email: formDetails.mentorEmail,
           phone: formDetails.mentorPhone,
         },
         members: teamMembers,
