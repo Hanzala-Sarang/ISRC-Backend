@@ -10,6 +10,7 @@ import {
   getAuth,
   sendEmailVerification,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
@@ -29,14 +30,14 @@ dotenv.config();
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyD1YgPZ2_yGPPu54E54DrJyBD8hN7h8J8s",
-  authDomain: "isrc-2a615.firebaseapp.com",
-  databaseURL: "https://isrc-2a615-default-rtdb.firebaseio.com",
-  projectId: "isrc-2a615",
-  storageBucket: "isrc-2a615.appspot.com",
-  messagingSenderId: "538265921590",
-  appId: "1:538265921590:web:86499e7bc8dc7c294cd097",
-  measurementId: "G-Q2ZJNQJ1MP",
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  databaseURL: process.env.FIREBASE_DATABASE_URL,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID,
+  measurementId: process.env.G - Q2ZJNQJ1MP,
 };
 
 const razorpayInstance = new Razorpay({
@@ -61,21 +62,37 @@ server.use(express.urlencoded({ extended: true })); // Built-in body-parser for 
 server.use(bodyParser.json());
 
 // API Security
-const limiter = rateLimit({
-  max: 100000,
-  windowMs: 60 * 60 * 1000,
-  message: "Too many requests from this IP, please try again in an hour",
+server.use(helmet());
+
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300, // Limit each IP to 100 requests per windowMs
+  message: "Too many requests, please try again later.",
 });
 
-server.use(limiter);
-server.use(helmet());
+// Apply global limiter to all requests
+server.use(globalLimiter);
+
+// Authentication-specific limiter
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // Limit each IP to 10 requests per windowMs
+  message: "Too many authentication attempts, please try again later.",
+});
+
+// Payment-specific limiter
+const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Limit each IP to 5 requests per windowMs
+  message: "Too many payment attempts, please try again later.",
+});
 
 server.get("/", (req, res) => {
   res.send("App is working");
 });
 
 // Register the User
-server.post("/register", async (req, res) => {
+server.post("/api/register", authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -112,7 +129,7 @@ server.post("/register", async (req, res) => {
 });
 
 // Login the User
-server.post("/login", async (req, res) => {
+server.post("/api/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -136,8 +153,25 @@ server.post("/login", async (req, res) => {
   }
 });
 
-// token verification
+// Forgot the Reset Password
+server.post("/api/forgot-password", authLimiter, async (req, res) => {
+  const { email } = req.body;
 
+  if (!email) {
+    return res.status(400).json({ message: "Email is Required" });
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+    res.status(200).json({ message: "Password reset email sent successfully" });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error sending password reset email", error });
+  }
+});
+
+// token verification
 // Middleware to verify Firebase ID token
 const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.split("Bearer ")[1];
@@ -162,7 +196,7 @@ const verifyToken = async (req, res, next) => {
 };
 
 // Get the user Data
-server.get("/user-profile", verifyToken, async (req, res) => {
+server.get("/api/user-profile", verifyToken, async (req, res) => {
   const uid = req.user.uid;
 
   try {
@@ -181,7 +215,7 @@ server.get("/user-profile", verifyToken, async (req, res) => {
 });
 
 // Team registration form
-server.post("/register-team", verifyToken, async (req, res) => {
+server.post("/api/register-team", verifyToken, async (req, res) => {
   const { uid } = req.user;
   const { formDetails, teamMembers } = req.body;
 
@@ -227,7 +261,7 @@ server.post("/register-team", verifyToken, async (req, res) => {
 });
 
 // Payment Gateway
-server.post("/api/payment", (req, res) => {
+server.post("/api/payment", paymentLimiter, (req, res) => {
   const { teamTotalPrice } = req.body;
 
   if (!teamTotalPrice) {
@@ -256,8 +290,7 @@ server.post("/api/payment", (req, res) => {
         console.error(err);
         return res.status(500).json({ error: "Failed to create order" });
       }
-      res.status(200).json({ data: order });
-      console.log("Order created now", order);
+      return res.status(200).json({ data: order });
     });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error" });
@@ -266,14 +299,10 @@ server.post("/api/payment", (req, res) => {
 });
 
 // Payment Verification
-server.post("/api/verify", verifyToken, async (req, res) => {
+server.post("/api/verify", verifyToken, paymentLimiter, async (req, res) => {
   const { uid } = req.user;
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
     req.body;
-
-  console.log("rzpordid", razorpay_order_id);
-  console.log("rzppaymentid", razorpay_payment_id);
-  console.log("rzpsignature", razorpay_signature);
   try {
     if (
       !uid ||
@@ -323,20 +352,20 @@ server.post("/api/verify", verifyToken, async (req, res) => {
 
     // Send response based on payment verification status
     if (paymentVerified) {
-      res.status(200).json({ message: "Payment verified successfully" });
+      return res.status(200).json({ message: "Payment verified successfully" });
     } else {
-      res.status(400).json({ message: "Payment verification failed" });
+      return res.status(400).json({ message: "Payment verification failed" });
     }
   } catch (error) {
     console.error("Payment verification error:", error); // Log error details for troubleshooting
-    res.status(500).json({ message: "Internal Server Error" });
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
 // Get the User Details
 
 // Check the verification Email
-server.post("/check-verification", async (req, res) => {
+server.post("/api/check-verification", async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -365,7 +394,7 @@ server.post("/check-verification", async (req, res) => {
 });
 
 // Admin panel route - upload Auth code and certificate (At the Moment Not in Use)
-server.post("/upload", upload.single("certificate"), async (req, res) => {
+server.post("/api/upload", upload.single("certificate"), async (req, res) => {
   const { authCode } = req.body;
   const file = req.file;
 
@@ -401,7 +430,7 @@ server.post("/upload", upload.single("certificate"), async (req, res) => {
   }
 });
 // Admin panel route - upload AuthCode, Name, and academic in database
-server.post("/save-details", async (req, res) => {
+server.post("/api/save-details", async (req, res) => {
   const { authCode, name, academicYear } = req.body;
 
   if (!authCode || !name || !academicYear) {
@@ -425,7 +454,7 @@ server.post("/save-details", async (req, res) => {
   }
 });
 
-server.post("/verify", async (req, res) => {
+server.post("/api/verify", async (req, res) => {
   const { authCode } = req.body;
 
   if (!authCode) {
@@ -459,7 +488,7 @@ server.post("/verify", async (req, res) => {
 });
 
 // Register the Campus Ambassador
-server.post("/campus-ambassador", async (req, res) => {
+server.post("/api/campus-ambassador", async (req, res) => {
   const {
     name,
     email,
