@@ -255,6 +255,8 @@ server.post("/api/register-team", verifyToken, async (req, res) => {
         members: teamMembers,
       },
       teamRegistered: true,
+      paymentStatus: "pending",
+      amountDue: formDetails.teamTotalPrice,
     });
 
     res.status(200).json({ message: "Team registered successfully" });
@@ -266,9 +268,9 @@ server.post("/api/register-team", verifyToken, async (req, res) => {
 
 // Payment Gateway
 server.post("/api/payment", paymentLimiter, (req, res) => {
-  const { teamTotalPrice } = req.body;
+  const { amount } = req.body;
 
-  if (!teamTotalPrice) {
+  if (!amount) {
     return res.status(400).json({
       statusCode: 400,
       error: {
@@ -284,7 +286,7 @@ server.post("/api/payment", paymentLimiter, (req, res) => {
 
   try {
     const options = {
-      amount: Number(teamTotalPrice) * 100,
+      amount: Number(amount) * 100,
       currency: "INR",
       receipt: crypto.randomBytes(10).toString("hex"),
     };
@@ -339,6 +341,9 @@ server.post("/api/verify", verifyToken, paymentLimiter, async (req, res) => {
       // Add payment details to existing user data
       const updatedUserData = {
         ...userData,
+        teamRegistered: true,
+        paymentStatus: paymentVerified ? "completed" : "failed",
+        amountDue: 0, // Set amount due to 0 to avoid unnecessary updates
         payments: {
           ...(userData.payments || {}),
           [razorpay_payment_id]: {
